@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
     procps \
     usbutils \
     udev \
+    xinput \
+    xtrlock \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory

@@ -14,6 +14,9 @@ launch_pictures() {
     pkill -f feh 2>/dev/null || true
     sleep 1
 
+    # Block keyboard input
+    block_keyboard
+
     # Set the picture path (container path)
     PICTURE_PATH="/app/ch340-welcome.jpg"
 
@@ -55,6 +58,26 @@ launch_pictures() {
     echo "Multi-display picture launched on all monitors!"
 }
 
+# Function to block/unblock keyboard input
+block_keyboard() {
+    echo "Blocking keyboard input with screen lock..."
+    # Use xtrlock to lock the screen (blocks all keyboard input)
+    xtrlock &
+    # Store the PID for later killing
+    echo $! > /tmp/xtrlock.pid
+}
+
+unblock_keyboard() {
+    echo "Unblocking keyboard input..."
+    # Kill the xtrlock process to unlock
+    if [ -f /tmp/xtrlock.pid ]; then
+        kill $(cat /tmp/xtrlock.pid) 2>/dev/null || true
+        rm -f /tmp/xtrlock.pid
+    fi
+    # Also kill any remaining xtrlock processes just in case
+    pkill -f xtrlock 2>/dev/null || true
+}
+
 # Main monitoring loop
 echo "Starting CH340 monitoring loop..."
 echo "$(date): Monitoring for CH340 devices..."
@@ -76,6 +99,10 @@ while true; do
         if [ "$device_connected" = true ]; then
             echo "CH340 disconnected"
             device_connected=false
+            # Unblock keyboard when device is disconnected
+            unblock_keyboard
+            # Also kill any remaining feh processes
+            pkill -f feh 2>/dev/null || true
         fi
     fi
     sleep 2
