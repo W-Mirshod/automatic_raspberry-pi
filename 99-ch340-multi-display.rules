@@ -1,0 +1,3 @@
+# CH340 Multi-Display Auto-Launch Rule
+# This rule triggers the multi-display script when CH340 USB-to-serial converter is connected
+SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", ACTION=="add", RUN+="/home/w/Projects/automatic_raspberry-pi/ch340-multi-display.sh"
