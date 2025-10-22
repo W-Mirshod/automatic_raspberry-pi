@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  ch340-display:
+    build: .
+    container_name: ch340-multi-display
+    privileged: true
+    devices:
+      - /dev:/dev
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/tmp/.X11-unix
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /home/w/.Xauthority:/root/.Xauthority:rw
+      - ./ch340-welcome.jpg:/app/ch340-welcome.jpg:ro
+      - /tmp/ch340-multi-display.log:/tmp/ch340-multi-display.log
+    network_mode: host
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
