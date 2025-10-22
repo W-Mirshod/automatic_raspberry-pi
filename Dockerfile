@@ -6,6 +6,9 @@ RUN apt-get update && apt-get install -y \
     imagemagick \
     xdotool \
     x11-apps \
+    x11-xserver-utils \
+    wmctrl \
+    procps \
     usbutils \
     udev \
     && rm -rf /var/lib/apt/lists/*

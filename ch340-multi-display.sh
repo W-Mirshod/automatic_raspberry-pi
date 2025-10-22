@@ -4,11 +4,15 @@
 # This script monitors for CH340 connection and opens pictures on ALL displays
 
 # Log the connection
-echo "$(date): CH340 Multi-Display Docker container started!" >> /tmp/ch340-multi-display.log
+echo "$(date): CH340 Multi-Display Docker container started!"
 
 # Function to launch pictures
 launch_pictures() {
-    echo "$(date): CH340 detected! Launching multi-display picture..." >> /tmp/ch340-multi-display.log
+    echo "$(date): CH340 detected! Launching multi-display picture..."
+
+    # Kill any existing feh processes first
+    pkill -f feh 2>/dev/null || true
+    sleep 1
 
     # Set the picture path (container path)
     PICTURE_PATH="/app/ch340-welcome.jpg"
@@ -20,49 +24,59 @@ launch_pictures() {
         magick -size 1920x1080 xc:"#1a86" -pointsize 72 -fill white -gravity center -annotate +0+0 "CH340 CONNECTED!\nMulti-Display Active" "$PICTURE_PATH"
     fi
 
-    # Launch 3 feh instances for multi-display
-    echo "Launching image viewers on all displays..."
+    echo "Launching image viewers on detected monitors..."
 
-    # Launch feh instances for each display (simplified mode)
-    feh --auto-zoom --geometry 800x600+0+0 "$PICTURE_PATH" &
-    sleep 1
-    feh --auto-zoom --geometry 800x600+820+0 "$PICTURE_PATH" &
-    sleep 1
-    feh --auto-zoom --geometry 800x600+1640+0 "$PICTURE_PATH" &
-    sleep 1
+    # Get monitor geometries from xrandr
+    monitors=$(xrandr --query | grep " connected" | grep -o '[0-9]\+x[0-9]\++[0-9]\++[0-9]\+')
 
-    echo "Launched 3 feh instances on multi-display setup..."
-
-    # Try to position the windows using xdotool (feh windows)
-    all_windows=$(xdotool search --onlyvisible --class "feh" 2>/dev/null)
-    if [ ! -z "$all_windows" ]; then
-        offset=0
-        for window in $all_windows; do
-            xdotool windowmove $window $offset 0
-            xdotool windowsize $window 1920 1080
-            echo "Positioned window $window at offset $offset"
-            offset=$((offset + 1920))
-        done
+    if [ -z "$monitors" ]; then
+        echo "No monitors detected; launching single window as fallback"
+        feh --auto-zoom --borderless --geometry 800x600+100+100 "$PICTURE_PATH"
     else
-        echo "Could not find gwenview windows to position automatically"
-        echo "You may need to manually move the windows to each display"
+        echo "Detected monitors: $monitors"
+        idx=0
+        for geom in $monitors; do
+            # Parse geometry: 1920x1080+0+0 -> w=1920 h=1080 x=0 y=0
+            w=$(echo "$geom" | cut -d'x' -f1)
+            h=$(echo "$geom" | cut -d'x' -f2 | cut -d'+' -f1)
+            x=$(echo "$geom" | cut -d'+' -f2)
+            y=$(echo "$geom" | cut -d'+' -f3)
+
+            echo "Monitor $idx: ${w}x${h}+${x}+${y}"
+
+            # Launch feh with geometry directly (more reliable than post-positioning)
+            feh --auto-zoom --borderless --geometry "${w}x${h}+${x}+${y}" "$PICTURE_PATH" &
+            echo "Launched feh window on monitor $idx"
+
+            idx=$((idx+1))
+        done
     fi
 
-    echo "Multi-display picture launched on all screens!"
-    echo "$(date): Pictures launched successfully" >> /tmp/ch340-multi-display.log
+    echo "Multi-display picture launched on all monitors!"
 }
 
 # Main monitoring loop
 echo "Starting CH340 monitoring loop..."
-echo "$(date): Monitoring for CH340 devices..." >> /tmp/ch340-multi-display.log
+echo "$(date): Monitoring for CH340 devices..."
+
+# Track connection state
+device_connected=false
 
 # Monitor for CH340 devices
 while true; do
     if lsusb | grep -q "1a86:7523"; then
-        echo "CH340 detected!"
-        launch_pictures
-        # Wait a bit to prevent multiple triggers
-        sleep 10
+        if [ "$device_connected" = false ]; then
+            echo "CH340 newly detected!"
+            device_connected=true
+            launch_pictures
+            # Wait a bit before checking again
+            sleep 5
+        fi
+    else
+        if [ "$device_connected" = true ]; then
+            echo "CH340 disconnected"
+            device_connected=false
+        fi
     fi
     sleep 2
 done
