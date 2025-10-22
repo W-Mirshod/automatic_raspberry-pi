@@ -23,13 +23,13 @@ launch_pictures() {
     # Launch 3 feh instances for multi-display
     echo "Launching image viewers on all displays..."
 
-    # Launch feh instances for each display (feh fullscreen mode)
-    feh --fullscreen --auto-zoom --geometry 1920x1080+0+0 "$PICTURE_PATH" &
-    sleep 2
-    feh --fullscreen --auto-zoom --geometry 1920x1080+1920+0 "$PICTURE_PATH" &
-    sleep 2
-    feh --fullscreen --auto-zoom --geometry 1920x1080+3840+0 "$PICTURE_PATH" &
-    sleep 2
+    # Launch feh instances for each display (simplified mode)
+    feh --auto-zoom --geometry 800x600+0+0 "$PICTURE_PATH" &
+    sleep 1
+    feh --auto-zoom --geometry 800x600+820+0 "$PICTURE_PATH" &
+    sleep 1
+    feh --auto-zoom --geometry 800x600+1640+0 "$PICTURE_PATH" &
+    sleep 1
 
     echo "Launched 3 feh instances on multi-display setup..."
 

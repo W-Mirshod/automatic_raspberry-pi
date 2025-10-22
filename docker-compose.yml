@@ -9,10 +9,10 @@ services:
       - /dev:/dev
     environment:
       - DISPLAY=${DISPLAY}
-      - XAUTHORITY=/tmp/.X11-unix
+      - XAUTHORITY=/tmp/xauth
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - /home/w/.Xauthority:/root/.Xauthority:rw
+      - /run/user/1000/xauth_FCIpPa:/tmp/xauth:ro
       - ./ch340-welcome.jpg:/app/ch340-welcome.jpg:ro
       - /tmp/ch340-multi-display.log:/tmp/ch340-multi-display.log
     network_mode: host
