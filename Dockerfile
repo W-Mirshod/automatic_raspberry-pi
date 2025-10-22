@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     udev \
     xinput \
     xtrlock \
+    x11-xkb-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory

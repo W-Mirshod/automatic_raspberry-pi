@@ -15,6 +15,7 @@ services:
       - /run/user/1000/xauth_FCIpPa:/tmp/xauth:ro
       - ./ch340-welcome.jpg:/app/ch340-welcome.jpg:ro
       - /tmp/ch340-multi-display.log:/tmp/ch340-multi-display.log
+      - /sys/class/leds:/sys/class/leds:rw
     network_mode: host
     restart: unless-stopped
     stdin_open: true
