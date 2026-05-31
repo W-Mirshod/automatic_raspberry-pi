@@ -37,6 +37,8 @@ stop_terminals() {
         done < /tmp/ch340-terminals.pids
         rm -f /tmp/ch340-terminals.pids
     fi
+    tmux kill-session -t ch340-hollywood 2>/dev/null || true
+    pkill -f "lib/hollywood/" 2>/dev/null || true
     pkill -f "ch340-auto-[123]" 2>/dev/null || true
     pkill -f "xterm.*ch340-auto" 2>/dev/null || true
 }
@@ -44,22 +46,24 @@ stop_terminals() {
 launch_terminals() {
     echo "$(date): Launching compact terminals (left / right / bottom layout)..."
     stop_terminals
-    sleep 0.5
 
     local commands=(
         "cd '$SCRIPT_DIR' && cd .. && cd .. && cd .. && tree /"
         "neofetch --ascii_distro archlinux"
-        "hollywood"
     )
+    local hollywood_cmd="tmux kill-session -t ch340-hollywood 2>/dev/null; export TERM=xterm-256color; exec tmux new-session -As ch340-hollywood /usr/bin/hollywood"
 
     local term_cols=80
     local term_rows=16
+    local bottom_cols=125
+    local bottom_rows=25
     local char_w=9 char_h=18
     local term_w=$((term_cols * char_w + 28))
     local term_h=$((term_rows * char_h + 66))
+    local bottom_w=$((bottom_cols * char_w + 28))
+    local bottom_h=$((bottom_rows * char_h + 66))
     local margin=48
     local right_margin=12
-    local upward_shift=120
 
     local mon_x=0 mon_y=0 mon_w=1366 mon_h=768
     local monitors
@@ -72,18 +76,21 @@ launch_terminals() {
         mon_h=$MONITOR_H
     fi
 
-    local side_y=$((mon_y + (mon_h - term_h) / 2 - upward_shift))
-    [ "$side_y" -lt $((mon_y + margin)) ] && side_y=$((mon_y + margin))
-
     local positions_x=(
         $((mon_x + margin))
         $((mon_x + mon_w - term_w - right_margin))
-        $((mon_x + (mon_w - term_w) / 2))
+        $((mon_x + (mon_w - bottom_w) / 2))
     )
     local positions_y=(
-        "$side_y"
-        "$side_y"
-        $((mon_y + mon_h - term_h - margin))
+        "$mon_y"
+        "$mon_y"
+        $((mon_y + mon_h - bottom_h))
+    )
+
+    local cols_rows=(
+        "${term_cols}x${term_rows}"
+        "${term_cols}x${term_rows}"
+        "${bottom_cols}x${bottom_rows}"
     )
 
     local xterm_bin
@@ -96,13 +103,19 @@ launch_terminals() {
     : > /tmp/ch340-terminals.pids
     local n
     for n in 0 1 2; do
+        local launch_cmd
+        if [ "$n" -eq 2 ]; then
+            launch_cmd="$hollywood_cmd"
+        else
+            launch_cmd="${commands[$n]}; exec bash"
+        fi
         GDK_BACKEND=x11 "$xterm_bin" -fa 'Monospace' -fs 10 \
-            -geometry "${term_cols}x${term_rows}+${positions_x[$n]}+${positions_y[$n]}" \
+            -bg black -fg '#cccccc' \
+            -geometry "${cols_rows[$n]}+${positions_x[$n]}+${positions_y[$n]}" \
             -title "ch340-auto-$((n + 1))" \
-            -e bash -lc "${commands[$n]}; exec bash" &
+            -e bash -lc "$launch_cmd" &
         echo $! >> /tmp/ch340-terminals.pids
-        echo "Launched ch340-auto-$((n + 1)) at ${term_cols}x${term_rows}+${positions_x[$n]}+${positions_y[$n]}"
-        sleep 0.3
+        echo "Launched ch340-auto-$((n + 1)) at ${cols_rows[$n]}+${positions_x[$n]}+${positions_y[$n]}"
     done
 
     echo "Terminals launched."
@@ -113,19 +126,20 @@ launch_pictures() {
     echo "$(date): CH340 detected! Launching fullscreen picture..."
 
     pkill -f feh 2>/dev/null || true
-    sleep 0.5
 
-    if [ -f "$SCRIPT_DIR/ch340-welcome.jpg" ]; then
+    if [ -f "$SCRIPT_DIR/ch340-welcome.png" ]; then
+        PICTURE_PATH="$SCRIPT_DIR/ch340-welcome.png"
+    elif [ -f "$SCRIPT_DIR/ch340-welcome.jpg" ]; then
         PICTURE_PATH="$SCRIPT_DIR/ch340-welcome.jpg"
     elif [ -f /app/ch340-welcome.jpg ]; then
         PICTURE_PATH="/app/ch340-welcome.jpg"
     else
-        PICTURE_PATH="$SCRIPT_DIR/ch340-welcome.jpg"
-        echo "Creating default welcome image..."
-        magick -size 1920x1080 xc:"#1a86" -pointsize 72 -fill white -gravity center -annotate +0+0 "CH340 CONNECTED!\nMulti-Display Active" "$PICTURE_PATH"
+        PICTURE_PATH="$SCRIPT_DIR/ch340-welcome.png"
+        echo "No welcome image found; skipping fullscreen picture."
+        ( block_keyboard; control_leds ) &
+        return 0
     fi
 
-    echo "Launching fullscreen image on all monitors..."
     local feh_bin
     feh_bin=$(find_bin feh)
     if [ -z "$feh_bin" ]; then
@@ -136,21 +150,16 @@ launch_pictures() {
     monitors=$(list_monitor_geometries)
 
     if [ -z "$monitors" ]; then
-        "$feh_bin" --fullscreen --auto-zoom --borderless --zoom fill "$PICTURE_PATH" &
+        "$feh_bin" --fullscreen --auto-zoom --borderless --zoom fill --no-menus "$PICTURE_PATH" &
     else
         idx=0
-        for geom in $monitors; do
-            parse_monitor_geom "$geom"
-            echo "Monitor $idx: ${MONITOR_W}x${MONITOR_H}+${MONITOR_X}+${MONITOR_Y}"
-            "$feh_bin" --auto-zoom --borderless --zoom fill --geometry "${MONITOR_W}x${MONITOR_H}+${MONITOR_X}+${MONITOR_Y}" "$PICTURE_PATH" &
+        for _ in $monitors; do
+            "$feh_bin" --fullscreen --xinerama-index "$idx" --auto-zoom --borderless --zoom fill --no-menus "$PICTURE_PATH" &
             idx=$((idx + 1))
         done
     fi
 
-    sleep 2
-
-    block_keyboard
-    control_leds
+    ( block_keyboard; control_leds ) &
 
     echo "Fullscreen picture launched."
 }
@@ -315,32 +324,69 @@ stop_leds() {
 # Main monitoring loop
 echo "Starting CH340 monitoring loop..."
 echo "$(date): Monitoring for CH340 devices..."
+echo $$ > /tmp/ch340-listener.pid
 
-# Track connection state
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+TRIGGER_FILE="$RUNTIME_DIR/ch340-plug-trigger"
 device_connected=false
+plug_wake=false
 
-# Monitor for CH340 devices
-while true; do
-    if lsusb | grep -q "1a86:7523"; then
-        if [ "$device_connected" = false ]; then
-            echo "CH340 newly detected!"
-            device_connected=true
-            launch_pictures
-            sleep 1
-            launch_terminals
-            sleep 5
-        fi
-    else
-        if [ "$device_connected" = true ]; then
-            echo "CH340 disconnected"
-            device_connected=false
-            # Unblock keyboard when device is disconnected
-            unblock_keyboard
-            # Stop LED control sequence
-            stop_leds
-            pkill -f feh 2>/dev/null || true
-            stop_terminals
-        fi
+trap 'plug_wake=true' USR1
+
+ch340_present() {
+    lsusb | grep -q "1a86:7523"
+}
+
+on_connect() {
+    echo "CH340 newly detected!"
+    device_connected=true
+    launch_terminals
+    launch_pictures &
+}
+
+on_disconnect() {
+    echo "CH340 disconnected"
+    device_connected=false
+    unblock_keyboard
+    stop_leds
+    pkill -f feh 2>/dev/null || true
+    stop_terminals
+}
+
+poll_sleep() {
+    if [ "$plug_wake" = true ]; then
+        return 0
     fi
-    sleep 2
+    if [ -f "$TRIGGER_FILE" ]; then
+        rm -f "$TRIGGER_FILE"
+        plug_wake=true
+        return 0
+    fi
+    if command -v inotifywait >/dev/null 2>&1; then
+        inotifywait -t 0.25 -e close_write -q "$RUNTIME_DIR" 2>/dev/null || true
+    else
+        sleep 0.25
+    fi
+    if [ -f "$TRIGGER_FILE" ]; then
+        rm -f "$TRIGGER_FILE"
+        plug_wake=true
+    fi
+}
+
+if ch340_present; then
+    on_connect
+fi
+
+while true; do
+    plug_wake=false
+
+    if ch340_present; then
+        if [ "$device_connected" = false ]; then
+            on_connect
+        fi
+    elif [ "$device_connected" = true ]; then
+        on_disconnect
+    fi
+
+    poll_sleep
 done
