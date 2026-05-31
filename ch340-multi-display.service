@@ -1,9 +1,12 @@
 [Unit]
-Description=CH340 multi-display + terminal auto-launcher
+Description=CH340 USB listener (image + terminals on plug)
+After=graphical-session.target
 
 [Service]
+Type=simple
 ExecStart=/home/w/Documents/automatic_raspberry-pi/ch340-multi-display.sh
-Restart=on-failure
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=default.target

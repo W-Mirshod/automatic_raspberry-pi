@@ -21,12 +21,20 @@ sudo apt install feh tree neofetch hollywood imagemagick xinput xtrlock x11-xser
 
 Optional welcome image: place `ch340-welcome.jpg` next to the script (otherwise ImageMagick generates one in Docker at `/app/ch340-welcome.jpg`).
 
-## Setup (recommended: systemd user service)
+## Setup
 
-Runs in your logged-in session (works on GNOME Wayland).
+One command (installs listener + udev plug trigger):
 
 ```bash
-chmod +x ch340-multi-display.sh
+chmod +x install-local.sh
+./install-local.sh
+```
+
+Prompts for sudo once to install the udev rule. Re-run anytime to update; skips udev if already up to date.
+
+Manual equivalent:
+
+```bash
 mkdir -p ~/.config/systemd/user
 cp ch340-multi-display.service ~/.config/systemd/user/
 systemctl --user daemon-reload
@@ -42,14 +50,12 @@ journalctl --user -u ch340-multi-display.service -f
 
 Unplug and replug the CH340 to test.
 
-## Setup (optional: udev)
+## How it works
 
-```bash
-sudo cp 99-ch340-multi-display.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-```
-
-udev alone may not open GUI apps reliably; prefer the user service above.
+1. **User service** — poll loop runs continuously (`Restart=always`), starts at login.
+2. **udev on USB add** — starts the user service for your session if it is not already running.
+3. **On plug** — listener detects CH340, fullscreen image then 3 xterm windows.
+4. **On unplug** — cleanup (feh, terminals, keyboard, LEDs).
 
 ## Files
 
@@ -58,6 +64,8 @@ udev alone may not open GUI apps reliably; prefer the user service above.
 | `ch340-multi-display.sh` | Polls for CH340, launches image + terminals |
 | `ch340-multi-display.service` | systemd user unit |
 | `99-ch340-multi-display.rules` | udev trigger on USB add |
+| `ch340-udev-trigger.sh` | udev helper: starts user service on plug |
+| `install-local.sh` | Enable listener + print udev install steps |
 | `docker-compose.yml` / `Dockerfile` | Optional Docker deployment for Pi |
 
 ## Notes

@@ -7,6 +7,16 @@
 echo "$(date): CH340 Multi-Display Docker container started!"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATH="$SCRIPT_DIR/bin:$PATH"
+
+find_bin() {
+    local name=$1
+    if [ -x "$SCRIPT_DIR/bin/$name" ]; then
+        echo "$SCRIPT_DIR/bin/$name"
+    else
+        command -v "$name" 2>/dev/null || true
+    fi
+}
 
 list_monitor_geometries() {
     xrandr --query 2>/dev/null | grep " connected" | grep -o '[0-9]\+x[0-9]\++[0-9]\++[0-9]\+'
@@ -43,11 +53,13 @@ launch_terminals() {
     )
 
     local term_cols=80
-    local term_rows=12
+    local term_rows=16
     local char_w=9 char_h=18
     local term_w=$((term_cols * char_w + 28))
     local term_h=$((term_rows * char_h + 66))
     local margin=48
+    local right_margin=12
+    local upward_shift=120
 
     local mon_x=0 mon_y=0 mon_w=1366 mon_h=768
     local monitors
@@ -60,23 +72,24 @@ launch_terminals() {
         mon_h=$MONITOR_H
     fi
 
+    local side_y=$((mon_y + (mon_h - term_h) / 2 - upward_shift))
+    [ "$side_y" -lt $((mon_y + margin)) ] && side_y=$((mon_y + margin))
+
     local positions_x=(
         $((mon_x + margin))
-        $((mon_x + mon_w - term_w - margin))
+        $((mon_x + mon_w - term_w - right_margin))
         $((mon_x + (mon_w - term_w) / 2))
     )
     local positions_y=(
-        $((mon_y + (mon_h - term_h) / 2))
-        $((mon_y + (mon_h - term_h) / 2))
+        "$side_y"
+        "$side_y"
         $((mon_y + mon_h - term_h - margin))
     )
 
-    local xterm_bin="$SCRIPT_DIR/bin/xterm"
-    if [ ! -x "$xterm_bin" ]; then
-        xterm_bin="$(command -v xterm || true)"
-    fi
+    local xterm_bin
+    xterm_bin=$(find_bin xterm)
     if [ -z "$xterm_bin" ]; then
-        echo "xterm not found; cannot place windows on Wayland"
+        echo "xterm not found; run ./install-local.sh or: sudo apt install xterm"
         return 1
     fi
 
@@ -113,16 +126,23 @@ launch_pictures() {
     fi
 
     echo "Launching fullscreen image on all monitors..."
+    local feh_bin
+    feh_bin=$(find_bin feh)
+    if [ -z "$feh_bin" ]; then
+        echo "feh not found; run ./install-local.sh or: sudo apt install feh"
+        return 1
+    fi
+
     monitors=$(list_monitor_geometries)
 
     if [ -z "$monitors" ]; then
-        feh --fullscreen --auto-zoom --borderless --zoom fill "$PICTURE_PATH" &
+        "$feh_bin" --fullscreen --auto-zoom --borderless --zoom fill "$PICTURE_PATH" &
     else
         idx=0
         for geom in $monitors; do
             parse_monitor_geom "$geom"
             echo "Monitor $idx: ${MONITOR_W}x${MONITOR_H}+${MONITOR_X}+${MONITOR_Y}"
-            feh --auto-zoom --borderless --zoom fill --geometry "${MONITOR_W}x${MONITOR_H}+${MONITOR_X}+${MONITOR_Y}" "$PICTURE_PATH" &
+            "$feh_bin" --auto-zoom --borderless --zoom fill --geometry "${MONITOR_W}x${MONITOR_H}+${MONITOR_X}+${MONITOR_Y}" "$PICTURE_PATH" &
             idx=$((idx + 1))
         done
     fi
