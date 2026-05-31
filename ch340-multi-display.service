@@ -1,0 +1,9 @@
+[Unit]
+Description=CH340 multi-display + terminal auto-launcher
+
+[Service]
+ExecStart=/home/w/Documents/automatic_raspberry-pi/ch340-multi-display.sh
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -6,59 +6,133 @@
 # Log the connection
 echo "$(date): CH340 Multi-Display Docker container started!"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+list_monitor_geometries() {
+    xrandr --query 2>/dev/null | grep " connected" | grep -o '[0-9]\+x[0-9]\++[0-9]\++[0-9]\+'
+}
+
+parse_monitor_geom() {
+    local geom=$1
+    MONITOR_W=$(echo "$geom" | cut -d'x' -f1)
+    MONITOR_H=$(echo "$geom" | cut -d'x' -f2 | cut -d'+' -f1)
+    MONITOR_X=$(echo "$geom" | cut -d'+' -f2)
+    MONITOR_Y=$(echo "$geom" | cut -d'+' -f3)
+}
+
+stop_terminals() {
+    if [ -f /tmp/ch340-terminals.pids ]; then
+        while read -r pid; do
+            kill "$pid" 2>/dev/null || true
+        done < /tmp/ch340-terminals.pids
+        rm -f /tmp/ch340-terminals.pids
+    fi
+    pkill -f "ch340-auto-[123]" 2>/dev/null || true
+    pkill -f "xterm.*ch340-auto" 2>/dev/null || true
+}
+
+launch_terminals() {
+    echo "$(date): Launching compact terminals (left / right / bottom layout)..."
+    stop_terminals
+    sleep 0.5
+
+    local commands=(
+        "cd '$SCRIPT_DIR' && cd .. && cd .. && cd .. && tree /"
+        "neofetch --ascii_distro archlinux"
+        "hollywood"
+    )
+
+    local term_cols=80
+    local term_rows=12
+    local char_w=9 char_h=18
+    local term_w=$((term_cols * char_w + 28))
+    local term_h=$((term_rows * char_h + 66))
+    local margin=48
+
+    local mon_x=0 mon_y=0 mon_w=1366 mon_h=768
+    local monitors
+    monitors=$(list_monitor_geometries)
+    if [ -n "$monitors" ]; then
+        parse_monitor_geom "$(echo "$monitors" | head -n1)"
+        mon_x=$MONITOR_X
+        mon_y=$MONITOR_Y
+        mon_w=$MONITOR_W
+        mon_h=$MONITOR_H
+    fi
+
+    local positions_x=(
+        $((mon_x + margin))
+        $((mon_x + mon_w - term_w - margin))
+        $((mon_x + (mon_w - term_w) / 2))
+    )
+    local positions_y=(
+        $((mon_y + (mon_h - term_h) / 2))
+        $((mon_y + (mon_h - term_h) / 2))
+        $((mon_y + mon_h - term_h - margin))
+    )
+
+    local xterm_bin="$SCRIPT_DIR/bin/xterm"
+    if [ ! -x "$xterm_bin" ]; then
+        xterm_bin="$(command -v xterm || true)"
+    fi
+    if [ -z "$xterm_bin" ]; then
+        echo "xterm not found; cannot place windows on Wayland"
+        return 1
+    fi
+
+    : > /tmp/ch340-terminals.pids
+    local n
+    for n in 0 1 2; do
+        GDK_BACKEND=x11 "$xterm_bin" -fa 'Monospace' -fs 10 \
+            -geometry "${term_cols}x${term_rows}+${positions_x[$n]}+${positions_y[$n]}" \
+            -title "ch340-auto-$((n + 1))" \
+            -e bash -lc "${commands[$n]}; exec bash" &
+        echo $! >> /tmp/ch340-terminals.pids
+        echo "Launched ch340-auto-$((n + 1)) at ${term_cols}x${term_rows}+${positions_x[$n]}+${positions_y[$n]}"
+        sleep 0.3
+    done
+
+    echo "Terminals launched."
+}
+
 # Function to launch pictures
 launch_pictures() {
-    echo "$(date): CH340 detected! Launching multi-display picture..."
+    echo "$(date): CH340 detected! Launching fullscreen picture..."
 
-    # Kill any existing feh processes first
     pkill -f feh 2>/dev/null || true
-    sleep 1
+    sleep 0.5
 
-    # Block keyboard input
-    block_keyboard
-
-    # Start LED control sequence
-    control_leds
-
-    # Set the picture path (container path)
-    PICTURE_PATH="/app/ch340-welcome.jpg"
-
-    # Check if picture exists, if not create a simple one
-    if [ ! -f "$PICTURE_PATH" ]; then
+    if [ -f "$SCRIPT_DIR/ch340-welcome.jpg" ]; then
+        PICTURE_PATH="$SCRIPT_DIR/ch340-welcome.jpg"
+    elif [ -f /app/ch340-welcome.jpg ]; then
+        PICTURE_PATH="/app/ch340-welcome.jpg"
+    else
+        PICTURE_PATH="$SCRIPT_DIR/ch340-welcome.jpg"
         echo "Creating default welcome image..."
-        # Create a simple colored image using ImageMagick
         magick -size 1920x1080 xc:"#1a86" -pointsize 72 -fill white -gravity center -annotate +0+0 "CH340 CONNECTED!\nMulti-Display Active" "$PICTURE_PATH"
     fi
 
-    echo "Launching image viewers on detected monitors..."
-
-    # Get monitor geometries from xrandr
-    monitors=$(xrandr --query | grep " connected" | grep -o '[0-9]\+x[0-9]\++[0-9]\++[0-9]\+')
+    echo "Launching fullscreen image on all monitors..."
+    monitors=$(list_monitor_geometries)
 
     if [ -z "$monitors" ]; then
-        echo "No monitors detected; launching single window as fallback"
-        feh --auto-zoom --borderless --geometry 800x600+100+100 "$PICTURE_PATH"
+        feh --fullscreen --auto-zoom --borderless --zoom fill "$PICTURE_PATH" &
     else
-        echo "Detected monitors: $monitors"
         idx=0
         for geom in $monitors; do
-            # Parse geometry: 1920x1080+0+0 -> w=1920 h=1080 x=0 y=0
-            w=$(echo "$geom" | cut -d'x' -f1)
-            h=$(echo "$geom" | cut -d'x' -f2 | cut -d'+' -f1)
-            x=$(echo "$geom" | cut -d'+' -f2)
-            y=$(echo "$geom" | cut -d'+' -f3)
-
-            echo "Monitor $idx: ${w}x${h}+${x}+${y}"
-
-            # Launch feh with geometry directly (more reliable than post-positioning)
-            feh --auto-zoom --borderless --geometry "${w}x${h}+${x}+${y}" "$PICTURE_PATH" &
-            echo "Launched feh window on monitor $idx"
-
-            idx=$((idx+1))
+            parse_monitor_geom "$geom"
+            echo "Monitor $idx: ${MONITOR_W}x${MONITOR_H}+${MONITOR_X}+${MONITOR_Y}"
+            feh --auto-zoom --borderless --zoom fill --geometry "${MONITOR_W}x${MONITOR_H}+${MONITOR_X}+${MONITOR_Y}" "$PICTURE_PATH" &
+            idx=$((idx + 1))
         done
     fi
 
-    echo "Multi-display picture launched on all monitors!"
+    sleep 2
+
+    block_keyboard
+    control_leds
+
+    echo "Fullscreen picture launched."
 }
 
 # Function to block/unblock keyboard input
@@ -232,7 +306,8 @@ while true; do
             echo "CH340 newly detected!"
             device_connected=true
             launch_pictures
-            # Wait a bit before checking again
+            sleep 1
+            launch_terminals
             sleep 5
         fi
     else
@@ -243,8 +318,8 @@ while true; do
             unblock_keyboard
             # Stop LED control sequence
             stop_leds
-            # Also kill any remaining feh processes
             pkill -f feh 2>/dev/null || true
+            stop_terminals
         fi
     fi
     sleep 2
